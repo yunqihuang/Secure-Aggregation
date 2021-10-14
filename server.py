@@ -52,7 +52,9 @@ class SecAggServer:
         }
 
 
-def create_serve(s, n, threshold):
+def create_serve(n, threshold):
+    s = SecAggServer()
+    epoch = 0
     sio = socketio.Server()
     app = socketio.WSGIApp(sio, static_files={
         '/': {'content_type': 'text/html', 'filename': 'index.html'}
@@ -61,6 +63,7 @@ def create_serve(s, n, threshold):
 
     # Background task to handle the timeout situation of Round1: 'AdvertiseKeys'
     def TimeoutU1():
+
         timeout = 5
         i = 0
         while i < timeout and s.phase['U1'] != States.FINISH:
@@ -136,8 +139,8 @@ def create_serve(s, n, threshold):
                             random.seed(shareKey)
                             for i in range(len(s.res)):
                                 s.res[i] += random.random() * x
-            print(s.res)
-            sio.emit('finish', base64.b64encode(s.res))
+            print(s.res/len(s.U3set))
+            sio.emit('finish', base64.b64encode(s.res/len(s.U3set)))
 
     @sio.event
     def connect(sid, environ):
@@ -233,5 +236,4 @@ def create_serve(s, n, threshold):
     eventlet.wsgi.server(eventlet.listen(('', 5000)), app)
 
 
-server = SecAggServer()
-create_serve(server, 5, 2)
+create_serve(5, 2)

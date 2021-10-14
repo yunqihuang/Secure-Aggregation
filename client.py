@@ -61,8 +61,8 @@ class SecAggClient:
         # round 1: upload user suPk and cuPk
         @sio.event()
         def connect():
-            print('connect to server')
-            print(str(self.threadId) + ' send public keys')
+            # print('connect to server')
+            # print(str(self.threadId) + ' send public keys')
             suPK_bytes = self.suPK.public_bytes(
                 encoding=serialization.Encoding.PEM,
                 format=serialization.PublicFormat.SubjectPublicKeyInfo)
@@ -74,7 +74,7 @@ class SecAggClient:
 
         @sio.on('connect_success')
         def on_connect_success(data):
-            print('connect success', data)
+            # print('connect success', data)
             self.id = data['id']
             # print('connect to server')
             # print('connect established, my id is ', self.id)
@@ -89,7 +89,7 @@ class SecAggClient:
             # print('receive clientU1')
             # print(self.clientU1)
             cipher = self.splitSecrets()
-            print(str(self.threadId) + ' upload secrets')
+            # print(str(self.threadId) + ' upload secrets')
             sio.emit('ShareKeys', cipher)
 
         # round 3: upload masked models to server
@@ -98,7 +98,7 @@ class SecAggClient:
             if self.drop == 2:
                 sio.disconnect()
                 return
-            print(str(self.threadId) + ' get others Secrets from server')
+            # print(str(self.threadId) + ' get others Secrets from server')
             self.decryptSecrets(data)
             model = self.maskModel()
             sio.emit('postModels', base64.b64encode(model))
@@ -106,7 +106,7 @@ class SecAggClient:
         # round 4：upload decrypted bu shares (online user) and suSk share (offline user)
         @sio.on('clientU3')
         def on_clientU3(data):
-            print(str(self.threadId) + ' post Shares')
+            # print(str(self.threadId) + ' post Shares')
             self.clientU3 = set(data)
             shares = []
             for sid in self.clientU2:
@@ -128,7 +128,7 @@ class SecAggClient:
         def on_finish(data):
             r = base64.b64decode(data)
             model = np.frombuffer(r, dtype=np.dtype('d'))
-            print("WELL DONE! global model:\n{}".format(model))
+            # print("WELL DONE! global model:\n{}".format(model))
             self.res = model
             sio.disconnect()
 
@@ -217,17 +217,17 @@ class SecAggClient:
 
     def start(self, model):
         self.model = model
-        self.create_handler()
         self.sio.connect('http://127.0.0.1:5000')
         self.sio.wait()
-        print('ok!')
+        print(self.res)
         return self.res
 
 
 def create_client(thread_id, drop):
     client = SecAggClient(thread_id)
     client.setDrop(drop)
-    client.start(np.zeros(10))
+    client.create_handler()
+    client.start(np.ones(10))
 
 
 if __name__ == "__main__":
