@@ -49,6 +49,8 @@ class SecAggClient:
         self.clientU2Secrets = {}
         self.drop = 0
         self.threadId = threadId
+        self.model = None
+        self.res = None
 
     def setDrop(self, d):
         self.drop = d
@@ -122,9 +124,12 @@ class SecAggClient:
                     })
             sio.emit('Unmasking', shares)
 
-        @sio.on('success')
-        def on_success():
-            print("WELL DONE!")
+        @sio.on('finish')
+        def on_finish(data):
+            r = base64.b64decode(data)
+            model = np.frombuffer(r, dtype=np.dtype('d'))
+            print("WELL DONE! global model:\n{}".format(model))
+            self.res = model
             sio.disconnect()
 
         @sio.event
@@ -135,12 +140,12 @@ class SecAggClient:
         @sio.event
         def disconnect():
             print('disconnected from server')
-            sio.disconnect()
 
     def maskModel(self):
         # np.random.seed(self.bu)
         # m = np.random.randn(2, 2)
-        m = np.zeros(10)
+        # m = np.zeros(10)
+        m = self.model
         random.seed(self.bu)
         for i in range(len(m)):
             m[i] += random.random()
@@ -210,49 +215,19 @@ class SecAggClient:
                         print("wrong secrets send to user {}".format(self.id))
                         # self.sio.disconnect()
 
-    def start(self):
+    def start(self, model):
+        self.model = model
         self.create_handler()
         self.sio.connect('http://127.0.0.1:5000')
         self.sio.wait()
+        print('ok!')
+        return self.res
 
 
 def create_client(thread_id, drop):
     client = SecAggClient(thread_id)
     client.setDrop(drop)
-    client.start()
-
-
-def test_shamir():
-    sk, pk = generate_key()
-    suSK_bytes = sk.private_bytes(
-        encoding=serialization.Encoding.PEM,
-        format=serialization.PrivateFormat.PKCS8,
-        encryption_algorithm=serialization.NoEncryption()
-    )
-    # n = [100, 200, 500, 1000]
-    # t = [20, 30, 40, 50, 60]
-    # for i in n:
-    #     for j in t:
-    #         sharmirSk = shamir.split_secret(suSK_bytes, j, i)
-    #         sharmirSk = shamir.to_base64(sharmirSk)
-    #         sharesSuSK = sharmirSk['shares']
-    #         sharmirSk['shares'] = random.sample(sharesSuSK, j)
-    #         time_start = time.time()
-    #         su = shamir.recover_secret(shamir.from_base64(sharmirSk))
-    #         # print(su == suSK_bytes)
-    #         time_end = time.time()
-    #         print(time_end - time_start)
-    #     print('n= ', i)
-
-    for j in [100, 200, 300, 400, 500, 600, 700]:
-        sharmirSk = shamir.split_secret(suSK_bytes, j, 1000)
-        sharmirSk = shamir.to_base64(sharmirSk)
-        sharesSuSK = sharmirSk['shares']
-        sharmirSk['shares'] = random.sample(sharesSuSK, j)
-        time_start = time.time()
-        su = shamir.recover_secret(shamir.from_base64(sharmirSk))
-        time_end = time.time()
-        print(time_end - time_start)
+    client.start(np.zeros(10))
 
 
 if __name__ == "__main__":

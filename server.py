@@ -43,7 +43,7 @@ class SecAggServer:
         self.U3set = []
         self.U4set = []
         self.models = []
-        self.res = np.zeros(10)
+        self.res = None
         self.phase = {
             'U1': States.READY,
             'U2': States.READY,
@@ -137,7 +137,7 @@ def create_serve(s, n, threshold):
                             for i in range(len(s.res)):
                                 s.res[i] += random.random() * x
             print(s.res)
-            sio.emit('success')
+            sio.emit('finish', base64.b64encode(s.res))
 
     @sio.event
     def connect(sid, environ):
@@ -197,7 +197,10 @@ def create_serve(s, n, threshold):
         model = np.frombuffer(r, dtype=np.dtype('d'))
         s.models.append({'id': sid, 'model': model})
         assert (len(s.U3set) == len(s.models))
-        s.res += model
+        if s.res is None:
+            s.res = model.copy()
+        else:
+            s.res += model
         if len(s.U3set) == n:
             s.phase['U3'] = States.FINISH
 
