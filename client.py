@@ -14,6 +14,8 @@ from cryptography.hazmat.primitives.kdf.hkdf import HKDF
 from sslib import shamir, randomness
 import time
 import _thread
+from model import MLP
+from utils import model2array, array2model
 
 
 def generate_key():
@@ -39,6 +41,7 @@ class SecAggClient:
     def __init__(self, threadId):
         self.id = ''
         self.threshold = 2
+        self.epoch = 0
         self.suSK, self.suPK = generate_key()
         self.cuSK, self.cuPK = generate_key()
         self.bu = secrets.token_bytes(16)
@@ -69,7 +72,8 @@ class SecAggClient:
             cuPK_bytes = self.cuPK.public_bytes(
                 encoding=serialization.Encoding.PEM,
                 format=serialization.PublicFormat.SubjectPublicKeyInfo)
-            pubkey = {'suPK': str(suPK_bytes, 'utf-8'), 'cuPK': str(cuPK_bytes, 'utf-8')}
+            pubkey = {'epoch': self.epoch,
+                      'suPK': str(suPK_bytes, 'utf-8'), 'cuPK': str(cuPK_bytes, 'utf-8')}
             sio.emit('AdvertiseKeys', pubkey)
 
         @sio.on('connect_success')
@@ -78,6 +82,10 @@ class SecAggClient:
             self.id = data['id']
             # print('connect to server')
             # print('connect established, my id is ', self.id)
+
+        @sio.on('epoch_error')
+        def on_epoch_error():
+            sio.disconnect()
 
         # round 2: compute shared key with other suPk and upload encrypted shares with cuPk
         @sio.on('clientU1')
@@ -127,7 +135,7 @@ class SecAggClient:
         @sio.on('finish')
         def on_finish(data):
             r = base64.b64decode(data)
-            model = np.frombuffer(r, dtype=np.dtype('d'))
+            model = np.frombuffer(r, dtype=np.dtype('float32'))
             # print("WELL DONE! global model:\n{}".format(model))
             self.res = model
             sio.disconnect()
@@ -146,11 +154,12 @@ class SecAggClient:
         # m = np.random.randn(2, 2)
         # m = np.zeros(10)
         m = self.model
+        print(m)
         random.seed(self.bu)
         for i in range(len(m)):
             m[i] += random.random()
         x = 1
-        print('clientU2: ', self.clientU2)
+        # print('clientU2: ', self.clientU2)
         for c in self.clientU1:
             if c['id'] == self.id:
                 x = -1
@@ -215,29 +224,33 @@ class SecAggClient:
                         print("wrong secrets send to user {}".format(self.id))
                         # self.sio.disconnect()
 
-    def start(self, model):
+    def start(self, model, epoch):
         self.model = model
+        self.epoch = epoch
         self.sio.connect('http://127.0.0.1:5000')
         self.sio.wait()
-        print(self.res)
         return self.res
 
 
-def create_client(thread_id, drop):
-    client = SecAggClient(thread_id)
-    client.setDrop(drop)
-    client.create_handler()
+def create_client(thread_id, m):
     for i in range(5):
-        client.start(np.ones(10))
+        client = SecAggClient(thread_id)
+        client.setDrop(0)
+        client.create_handler()
+        x, y, z = model2array(m)
+        out = client.start(x, i)
+        res = array2model(out, y, z)
+        print('epoch-{0}:{1}'.format(i, res))
 
 
 if __name__ == "__main__":
     try:
-        _thread.start_new_thread(create_client, (0, 0))
-        _thread.start_new_thread(create_client, (1, 0))
-        _thread.start_new_thread(create_client, (2, 0))
-        _thread.start_new_thread(create_client, (3, 1))
-        _thread.start_new_thread(create_client, (4, 2))
+        mlp = MLP(2, 2, 1).state_dict()
+        print(mlp)
+        _thread.start_new_thread(create_client, (0, mlp))
+        _thread.start_new_thread(create_client, (1, mlp))
+        _thread.start_new_thread(create_client, (2, mlp))
+        _thread.start_new_thread(create_client, (3, mlp))
     except:
         print("Error: 无法启动线程")
 

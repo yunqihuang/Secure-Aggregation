@@ -35,6 +35,25 @@ def deriveKey(sk, pk):
 # can be replaced by database
 class SecAggServer:
     def __init__(self):
+        self.epoch = 0
+        self.dType = 'float32'
+        self.clientSecrets = {}
+        self.cipherList = []
+        self.clientU1_info = []
+        self.U1set = []
+        self.U2set = []
+        self.U3set = []
+        self.U4set = []
+        self.models = []
+        self.res = None
+        self.phase = {
+            'U1': States.READY,
+            'U2': States.READY,
+            'U3': States.READY,
+            'U4': States.READY,
+        }
+
+    def reset(self):
         self.clientSecrets = {}
         self.cipherList = []
         self.clientU1_info = []
@@ -54,7 +73,6 @@ class SecAggServer:
 
 def create_serve(n, threshold):
     s = SecAggServer()
-    epoch = 0
     sio = socketio.Server()
     app = socketio.WSGIApp(sio, static_files={
         '/': {'content_type': 'text/html', 'filename': 'index.html'}
@@ -141,16 +159,21 @@ def create_serve(n, threshold):
                                 s.res[i] += random.random() * x
             print(s.res / len(s.U3set))
             sio.emit('finish', base64.b64encode(s.res / len(s.U3set)))
+            s.epoch += 1
+            s.reset()
 
     @sio.event
     def connect(sid, environ):
         print('connect ', sid)
-        sio.emit('connect_success', {'id': sid, 'epoch': epoch}, room=sid)
+        sio.emit('connect_success', {'id': sid}, room=sid)
 
     #  round 1: collect user uploaded suPk and cuPk
     # start the background task TimeoutU1, when meeting the requirement emit client message to every user
     @sio.on('AdvertiseKeys')
     def on_uploadPk(sid, data):
+        if data['epoch'] != s.epoch:
+            sio.emit('epoch_error', room=sid)
+            return
         if s.phase['U1'] == States.READY:
             s.phase['U1'] = States.BEGIN
             sio.start_background_task(TimeoutU1)
@@ -197,7 +220,7 @@ def create_serve(n, threshold):
         print(str(sid) + ' post models')
         s.U3set.append(sid)
         r = base64.b64decode(data)
-        model = np.frombuffer(r, dtype=np.dtype('d'))
+        model = np.frombuffer(r, dtype=s.dType)
         s.models.append({'id': sid, 'model': model})
         assert (len(s.U3set) == len(s.models))
         if s.res is None:
@@ -236,4 +259,5 @@ def create_serve(n, threshold):
     eventlet.wsgi.server(eventlet.listen(('', 5000)), app)
 
 
-create_serve(5, 2)
+if __name__ == "__main__":
+    create_serve(4, 2)
