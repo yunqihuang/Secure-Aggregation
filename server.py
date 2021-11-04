@@ -139,13 +139,13 @@ def create_serve(n, threshold):
                             random.seed(shareKey)
                             for i in range(len(s.res)):
                                 s.res[i] += random.random() * x
-            print(s.res/len(s.U3set))
-            sio.emit('finish', base64.b64encode(s.res/len(s.U3set)))
+            print(s.res / len(s.U3set))
+            sio.emit('finish', base64.b64encode(s.res / len(s.U3set)))
 
     @sio.event
     def connect(sid, environ):
         print('connect ', sid)
-        sio.emit('connect_success', {'id': sid}, room=sid)
+        sio.emit('connect_success', {'id': sid, 'epoch': epoch}, room=sid)
 
     #  round 1: collect user uploaded suPk and cuPk
     # start the background task TimeoutU1, when meeting the requirement emit client message to every user

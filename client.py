@@ -133,7 +133,7 @@ class SecAggClient:
             sio.disconnect()
 
         @sio.event
-        def connect_error():
+        def connect_error(x):
             print("The connection failed!")
             sio.disconnect()
 
@@ -227,7 +227,8 @@ def create_client(thread_id, drop):
     client = SecAggClient(thread_id)
     client.setDrop(drop)
     client.create_handler()
-    client.start(np.ones(10))
+    for i in range(5):
+        client.start(np.ones(10))
 
 
 if __name__ == "__main__":
