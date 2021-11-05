@@ -82,7 +82,7 @@ def create_serve(n, threshold):
     # Background task to handle the timeout situation of Round1: 'AdvertiseKeys'
     def TimeoutU1():
 
-        timeout = 5
+        timeout = 10
         i = 0
         while i < timeout and s.phase['U1'] != States.FINISH:
             eventlet.sleep(1)
@@ -91,10 +91,11 @@ def create_serve(n, threshold):
         if len(s.U1set) < threshold:
             sio.emit('disconnect')
         sio.emit('clientU1', s.clientU1_info)
+        s.phase['U1'] = States.FINISH
 
     # Background task to handle the timeout situation of Round2: 'ShareKeys'
     def TimeoutU2():
-        timeout = 5
+        timeout = 10
         i = 0
         while i < timeout and s.phase['U2'] != States.FINISH:
             eventlet.sleep(1)
@@ -109,10 +110,11 @@ def create_serve(n, threshold):
                     if cipher['id'] == cid:
                         res.append({'id': tid, 'cipher': cipher['cipher']})
             sio.emit('clientU2', res, room=cid)
+        s.phase['U2'] = States.FINISH
 
     # Background task to handle the timeout situation of Round3: 'postModels'
     def TimeoutU3():
-        timeout = 6
+        timeout = 10
         i = 0
         while i < timeout and s.phase['U3'] != States.FINISH:
             eventlet.sleep(1)
@@ -121,10 +123,11 @@ def create_serve(n, threshold):
         if len(s.U3set) < threshold:
             sio.emit('disconnect')
         sio.emit('clientU3', s.U3set)
+        s.phase['U3'] = States.FINISH
 
     # Background task to handle the timeout situation of Round4: 'Unmasking'
     def TimeoutU4():
-        timeout = 5
+        timeout = 10
         i = 0
         while i < timeout and s.phase['U4'] != States.FINISH:
             eventlet.sleep(1)
@@ -157,8 +160,11 @@ def create_serve(n, threshold):
                             random.seed(shareKey)
                             for i in range(len(s.res)):
                                 s.res[i] += random.random() * x
+            testSum = np.sum([x['gt'] for x in s.models],axis=0)
             print(s.res / len(s.U3set))
+            print(testSum / len(s.U3set))
             sio.emit('finish', base64.b64encode(s.res / len(s.U3set)))
+            s.phase['U4'] = States.FINISH
             s.epoch += 1
             s.reset()
 
@@ -171,7 +177,7 @@ def create_serve(n, threshold):
     # start the background task TimeoutU1, when meeting the requirement emit client message to every user
     @sio.on('AdvertiseKeys')
     def on_uploadPk(sid, data):
-        if data['epoch'] != s.epoch:
+        if data['epoch'] != s.epoch or s.phase['U1'] == States.FINISH:
             sio.emit('epoch_error', room=sid)
             return
         if s.phase['U1'] == States.READY:
@@ -190,10 +196,14 @@ def create_serve(n, threshold):
     # start the background task TimeoutU1, when meeting the requirement emit encrypted shares to every user
     @sio.on('ShareKeys')
     def on_secrets(sid, data):
+        if data['epoch'] != s.epoch or s.phase['U2'] == States.FINISH:
+            sio.emit('epoch_error', room=sid)
+            return
         if s.phase['U2'] == States.READY:
             s.phase['U2'] = States.BEGIN
             sio.start_background_task(TimeoutU2)
         print('receive secrets from {}'.format(sid))
+        data = data['cipher']
         cBuShares = {
             'required_shares': threshold,
             'prime_mod': data['buPrimeMod'],
@@ -214,14 +224,19 @@ def create_serve(n, threshold):
     # round 3: collect masked models from users
     @sio.on('postModels')
     def on_postModels(sid, data):
+        if data['epoch'] != s.epoch or s.phase['U3'] == States.FINISH:
+            sio.emit('epoch_error', room=sid)
+            return
         if s.phase['U3'] == States.READY:
             s.phase['U3'] = States.BEGIN
             sio.start_background_task(TimeoutU3)
         print(str(sid) + ' post models')
         s.U3set.append(sid)
-        r = base64.b64decode(data)
+        r = base64.b64decode(data['model'])
         model = np.frombuffer(r, dtype=s.dType)
-        s.models.append({'id': sid, 'model': model})
+        test = base64.b64decode(data['testData'])
+        gt = np.frombuffer(test, dtype=s.dType)
+        s.models.append({'id': sid, 'model': model, 'gt': gt})
         assert (len(s.U3set) == len(s.models))
         if s.res is None:
             s.res = model.copy()
@@ -233,13 +248,14 @@ def create_serve(n, threshold):
     # round 4: collect decrypted bu shares or suSk shares of user, then unmask the model
     @sio.on('Unmasking')
     def on_Unmasking(sid, data):
-        if s.phase['U4'] == States.FINISH:
+        if data['epoch'] != s.epoch or s.phase['U4'] == States.FINISH:
+            sio.emit('epoch_error', room=sid)
             return
         if s.phase['U4'] == States.READY:
             s.phase['U4'] = States.BEGIN
             sio.start_background_task(TimeoutU4)
         print('receive shares from {}'.format(sid))
-        for share in data:
+        for share in data['shares']:
             if share['buShare'] is not None:
                 tmp = s.clientSecrets[share['id']]['buShares']
                 tmp['shares'].append(share['buShare'])

@@ -1,4 +1,5 @@
 import base64
+import copy
 import random
 import numpy as np
 import secrets
@@ -85,36 +86,38 @@ class SecAggClient:
 
         @sio.on('epoch_error')
         def on_epoch_error():
-            sio.disconnect()
+            print('epoch_error')
+            self.drop = 1
 
         # round 2: compute shared key with other suPk and upload encrypted shares with cuPk
         @sio.on('clientU1')
         def on_clientU1(data):
             if self.drop == 1:
-                sio.disconnect()
                 return
             self.clientU1 = data
             # print('receive clientU1')
             # print(self.clientU1)
             cipher = self.splitSecrets()
             # print(str(self.threadId) + ' upload secrets')
-            sio.emit('ShareKeys', cipher)
+            sio.emit('ShareKeys', {'epoch': self.epoch, 'cipher': cipher})
 
         # round 3: upload masked models to server
         @sio.on('clientU2')
         def on_clientU2(data):
-            if self.drop == 2:
-                sio.disconnect()
+            if self.drop == 1:
                 return
             # print(str(self.threadId) + ' get others Secrets from server')
             self.decryptSecrets(data)
-            model = self.maskModel()
-            sio.emit('postModels', base64.b64encode(model))
+            m = self.maskModel()
+            sio.emit('postModels', {'epoch': self.epoch, 'model': base64.b64encode(m),
+                                    'testData': base64.b64encode(self.model)})
 
         # round 4：upload decrypted bu shares (online user) and suSk share (offline user)
         @sio.on('clientU3')
         def on_clientU3(data):
             # print(str(self.threadId) + ' post Shares')
+            if self.drop == 1:
+                return
             self.clientU3 = set(data)
             shares = []
             for sid in self.clientU2:
@@ -130,7 +133,7 @@ class SecAggClient:
                         'buShare': None,
                         'suShare': self.clientU2Secrets[sid]['suShare']
                     })
-            sio.emit('Unmasking', shares)
+            sio.emit('Unmasking', {'epoch': self.epoch, 'shares': shares})
 
         @sio.on('finish')
         def on_finish(data):
@@ -153,8 +156,8 @@ class SecAggClient:
         # np.random.seed(self.bu)
         # m = np.random.randn(2, 2)
         # m = np.zeros(10)
-        m = self.model
-        print(m)
+        m = copy.deepcopy(self.model)
+        # print(m)
         random.seed(self.bu)
         for i in range(len(m)):
             m[i] += random.random()

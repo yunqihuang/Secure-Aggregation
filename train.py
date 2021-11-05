@@ -1,5 +1,3 @@
-import _thread
-
 import torch
 from torchvision import datasets, transforms
 from torch import nn, optim
@@ -8,7 +6,8 @@ from server import *
 from client import *
 from model import ResNet, MLP
 import copy
-from utils import model2array, array2model
+from utils import *
+import multiprocessing
 
 
 def getdata():
@@ -29,14 +28,14 @@ class FedAvg:
         self.local_trainSet = []
         self.clients = []
         self.iid = True
-        self.model = MLP()
+        self.model = MLP(in_features=784, num_classes=10, hidden_dim=20)
 
     def init_clients(self):
         idx = self.sample()
         for i in range(self.clientNum):
-            sub = Subset(self.trainSet, idx[i])
+            sub = DatasetSplit(self.trainSet, idx[i])
             # print(len(idx[i]), len(sub))
-            c = Worker(i, sub, copy.deepcopy(self.model))
+            c = WorkerProcess(i, sub, copy.deepcopy(self.model))
             self.clients.append(c)
 
     def sample(self):
@@ -52,19 +51,20 @@ class FedAvg:
             return []
 
     def start(self):
-        epoch = 5
-        for i in range(epoch):
-            for j in range(self.clientNum):
-                pass
+        self.init_clients()
+        for j in range(self.clientNum):
+            self.clients[j].start()
 
 
-class Worker:
+class WorkerProcess(multiprocessing.Process):
     def __init__(self, i, dataset, model):
+        multiprocessing.Process.__init__(self)
         self.id = i
         self.local_dataSet = dataset
         self.dataloader = DataLoader(self.local_dataSet, batch_size=64, shuffle=True)
         self.model = model
-        self.local_epoch = 5
+        self.epoch = 10
+        self.local_epoch = 3
         self.lr = 0.01
         self.device = 'cpu'
 
@@ -87,24 +87,22 @@ class Worker:
             epoch_loss.append(sum(batch_loss) / len(batch_loss))
         return self.model.state_dict(), sum(epoch_loss) / len(epoch_loss)
 
-    def step(self, epoch):
-        w, loss = self.local_update()
-        client = SecAggClient(self.id)
-        client.setDrop(0)
-        client.create_handler()
-        localModel, shape, nums = model2array(w)
-        res = client.start(localModel, epoch)
-        globalModel = array2model(res, shape, nums)
-        self.model.load_state_dict(res)
+    def run(self):
+        for i in range(self.epoch):
+            # print('worker {0} start epoch {1}\n'.format(self.id, i))
+            w, loss = self.local_update()
+            client = SecAggClient(self.id)
+            client.setDrop(0)
+            client.create_handler()
+            localModel, shape, nums = model2array(w)
+            # print('worker {0} start secure aggregation\n local model:{1}\n'.format(self.id, localModel))
+            res = client.start(localModel, i)
+            # print('worker {0} end epoch {1}\n globalModel:{2}\n'.format(self.id, i, res))
+            globalModel = array2model(res, shape, nums)
+            self.model.load_state_dict(globalModel)
         return
 
 
-x, y, z = model2array(MLP(2, 2, 1).state_dict())
-print(x.dtype)
-# x = np.ones(10)
-# print(x.dtype)
-data = base64.b64encode(x)
-r = base64.b64decode(data)
-print(r)
-model = np.frombuffer(r, dtype='float32')
-print(model)
+if __name__ == '__main__':
+    x = FedAvg(4)
+    x.start()
