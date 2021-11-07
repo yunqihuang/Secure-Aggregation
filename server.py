@@ -160,10 +160,8 @@ def create_serve(n, threshold):
                             random.seed(shareKey)
                             for i in range(len(s.res)):
                                 s.res[i] += random.random() * x
-            testSum = np.sum([x['gt'] for x in s.models],axis=0)
             print(s.res / len(s.U3set))
-            print(testSum / len(s.U3set))
-            sio.emit('finish', base64.b64encode(s.res / len(s.U3set)))
+            sio.emit('finish', {'res': base64.b64encode(s.res / len(s.U3set))})
             s.phase['U4'] = States.FINISH
             s.epoch += 1
             s.reset()
@@ -234,9 +232,7 @@ def create_serve(n, threshold):
         s.U3set.append(sid)
         r = base64.b64decode(data['model'])
         model = np.frombuffer(r, dtype=s.dType)
-        test = base64.b64decode(data['testData'])
-        gt = np.frombuffer(test, dtype=s.dType)
-        s.models.append({'id': sid, 'model': model, 'gt': gt})
+        s.models.append({'id': sid, 'model': model})
         assert (len(s.U3set) == len(s.models))
         if s.res is None:
             s.res = model.copy()
@@ -276,4 +272,4 @@ def create_serve(n, threshold):
 
 
 if __name__ == "__main__":
-    create_serve(4, 2)
+    create_serve(30, 20)

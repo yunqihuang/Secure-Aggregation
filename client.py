@@ -39,9 +39,10 @@ def deriveKey(sk, pk):
 
 
 class SecAggClient:
-    def __init__(self, threadId):
+    def __init__(self, threadId, host):
         self.id = ''
-        self.threshold = 2
+        self.host = host
+        self.threshold = 20
         self.epoch = 0
         self.suSK, self.suPK = generate_key()
         self.cuSK, self.cuPK = generate_key()
@@ -109,8 +110,7 @@ class SecAggClient:
             # print(str(self.threadId) + ' get others Secrets from server')
             self.decryptSecrets(data)
             m = self.maskModel()
-            sio.emit('postModels', {'epoch': self.epoch, 'model': base64.b64encode(m),
-                                    'testData': base64.b64encode(self.model)})
+            sio.emit('postModels', {'epoch': self.epoch, 'model': base64.b64encode(m)})
 
         # round 4：upload decrypted bu shares (online user) and suSk share (offline user)
         @sio.on('clientU3')
@@ -137,10 +137,10 @@ class SecAggClient:
 
         @sio.on('finish')
         def on_finish(data):
-            r = base64.b64decode(data)
+            r = base64.b64decode(data['res'])
             model = np.frombuffer(r, dtype=np.dtype('float32'))
             # print("WELL DONE! global model:\n{}".format(model))
-            self.res = model
+            self.res = {'model': model}
             sio.disconnect()
 
         @sio.event
@@ -150,7 +150,8 @@ class SecAggClient:
 
         @sio.event
         def disconnect():
-            print('disconnected from server')
+            pass
+            # print('disconnected from server')
 
     def maskModel(self):
         # np.random.seed(self.bu)
@@ -230,14 +231,14 @@ class SecAggClient:
     def start(self, model, epoch):
         self.model = model
         self.epoch = epoch
-        self.sio.connect('http://127.0.0.1:5000')
+        self.sio.connect(self.host)
         self.sio.wait()
         return self.res
 
 
 def create_client(thread_id, m):
     for i in range(5):
-        client = SecAggClient(thread_id)
+        client = SecAggClient(thread_id, 'http://127.0.0.1:5000')
         client.setDrop(0)
         client.create_handler()
         x, y, z = model2array(m)
